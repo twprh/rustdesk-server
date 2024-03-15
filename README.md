@@ -5,7 +5,7 @@
   <a href="#how-to-create-a-keypair">Keypair</a> •
   <a href="#deb-packages">Debian</a> •
   <a href="#env-variables">Variables</a><br>
-  [<a href="README-DE.md">Deutsch</a>] | [<a href="README-NL.md">Nederlands</a>]<br>
+  [<a href="README-DE.md">Deutsch</a>] | [<a href="README-NL.md">Nederlands</a>] | [<a href="README-TW.md">繁體中文</a>]<br>
 </p>
 
 # RustDesk Server Program
@@ -113,6 +113,9 @@ services:
 Edit line 16 to point to your relay server (the one listening on port 21117). You can also edit the volume lines (line 18 and line 33) if you need.
 
 (docker-compose credit goes to @lukebarone and @QuiGonLeong)
+
+
+> Note that here, the rustdesk/rustdesk-server:latest in China may be replaced with the latest version number on dockerhub, such as rustdesk-server:1.1.10-3. Otherwise, the old version may be pulled due to image acceleration.
 
 ## S6-overlay based images
 
@@ -341,7 +344,7 @@ You can specify the variables as usual or use an `.env` file.
 | KEY | hbbs/hbbr | if set force the use of a specific key, if set to **"_"** force the use of any key |
 | LIMIT_SPEED | hbbr | speed limit (in Mb/s) |
 | PORT | hbbs/hbbr | listening port (21116 for hbbs - 21117 for hbbr) |
-| RELAY_SERVERS | hbbs | IP address/DNS name of the machines running hbbr (separated by comma) |
+| RELAY | hbbs | IP address/DNS name of the machines running hbbr (separated by comma) |
 | RUST_LOG | all | set debug level (error\|warn\|info\|debug\|trace) |
 | SINGLE_BANDWIDTH | hbbr | max bandwidth for a single connection (in Mb/s) |
 | TOTAL_BANDWIDTH | hbbr | max total bandwidth (in Mb/s) |
