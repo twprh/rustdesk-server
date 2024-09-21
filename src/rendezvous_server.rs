@@ -546,7 +546,7 @@ impl RendezvousServer {
                     Self::send_to_sink(sink, msg_out).await;
                 }
                 Some(rendezvous_message::Union::RegisterPk(_)) => {
-                    let res = register_pk_response::Result::NOT_SUPPORT;
+                    let res = register_pk_response::Result::OK;
                     let mut msg_out = RendezvousMessage::new();
                     msg_out.set_register_pk_response(RegisterPkResponse {
                         result: res.into(),
