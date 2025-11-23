@@ -63,6 +63,7 @@ jobs:
             target/${{ matrix.job.target }}/release/rustdesk-utils
           if-no-files-found: error
 
+
   build-win:
     name: Build Windows
     runs-on: windows-2022
@@ -83,20 +84,14 @@ jobs:
           profile: minimal
           target: x86_64-pc-windows-msvc
 
-      - name: Build
+      - name: Build Windows Binaries
         uses: actions-rs/cargo@v1
         with:
           command: build
           args: --release --all-features --target=x86_64-pc-windows-msvc
           use-cross: true
 
-      - name: Build UI
-        run: |
-          npm ci
-          npm run build
-        working-directory: ./ui/html
-
-      - name: Build Windows Setup
+      - name: Build Windows Setup (no UI / no Vite)
         run: |
           rustup default nightly
           cargo build --release
@@ -119,6 +114,7 @@ jobs:
             ui\SignOutput\rustdesk-utils.exe
             ui\SignOutput\RustDeskServer.Setup.exe
           if-no-files-found: error
+
 
   release:
     name: Create GitHub Release
@@ -143,11 +139,11 @@ jobs:
           name: binaries-${{ matrix.job.os }}-${{ matrix.job.name }}
           path: release/${{ matrix.job.os }}-${{ matrix.job.name }}
 
-      - name: Make files executable
+      - name: Make Linux files executable
         if: matrix.job.os == 'linux'
         run: chmod a+x release/${{ matrix.job.os }}-${{ matrix.job.name }}/*
 
-      - name: Pack files
+      - name: Pack ZIP files
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y zip
