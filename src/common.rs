@@ -1,13 +1,15 @@
-use clap::{Arg, Command};
+use clap::{App};
 use hbb_common::{
     allow_err,
     anyhow::{Context, Result},
-    get_version_number, log, tokio, ResultType,
+    get_version_number,
+    log, tokio, ResultType,
 };
 use ini::Ini;
 use sodiumoxide::crypto::sign;
 use std::{
     io::prelude::*,
+    io::Read,
     net::SocketAddr,
     time::{Instant, SystemTime},
 };
@@ -47,6 +49,7 @@ pub(crate) fn get_servers(s: &str, tag: &str) -> Vec<String> {
     servers
 }
 
+#[allow(dead_code)]
 #[inline]
 fn arg_name(name: &str) -> String {
     name.to_uppercase().replace('_', "-")
@@ -54,63 +57,37 @@ fn arg_name(name: &str) -> String {
 
 #[allow(dead_code)]
 pub fn init_args(args: &str, name: &str, about: &str) {
-    // ---- Upgrade Clap v2 → Clap v4 ----
-    let mut cmd = Command::new(name)
+    let matches = App::new(name)
         .version(crate::version::VERSION)
         .author("Purslane Ltd. <info@rustdesk.com>")
-        .about(about);
+        .about(about)
+        .args_from_usage(args)
+        .get_matches();
 
-    // If you still rely on `args` format ("--key [value]"), convert:
-    for token in args.split_whitespace() {
-        if token.starts_with("--") {
-            let key = token.trim_start_matches("--");
-            cmd = cmd.arg(
-                Arg::new(key)
-                    .long(key)
-                    .num_args(0..=1)
-                    .required(false),
-            );
-        }
-    }
-
-    let matches = cmd.get_matches();
-
-    // ----------------------------
-    // Load .env and config file
-    // ----------------------------
+    // Load .env file
     if let Ok(v) = Ini::load_from_file(".env") {
         if let Some(section) = v.section(None::<String>) {
-            for (k, v) in section.iter() {
-                unsafe {
-                    std::env::set_var(arg_name(k), v);
-                }
-            }
+            section.iter().for_each(|(k, v)| {
+                std::env::set_var(arg_name(k), v);
+            });
         }
     }
 
-    if let Some(config) = matches.get_one::<String>("config") {
+    // Load config file if provided
+    if let Some(config) = matches.value_of("config") {
         if let Ok(v) = Ini::load_from_file(config) {
             if let Some(section) = v.section(None::<String>) {
-                for (k, v) in section.iter() {
-                    unsafe {
-                        std::env::set_var(arg_name(k), v);
-                    }
-                }
+                section.iter().for_each(|(k, v)| {
+                    std::env::set_var(arg_name(k), v);
+                });
             }
         }
     }
 
-    // ----------------------------
-    // Load CLI args into env vars
-    // ----------------------------
-    for arg in matches.ids() {
-        if let Some(raw_vals) = matches.get_raw(arg) {
-            for val in raw_vals {
-                let value = val.to_string_lossy();
-                unsafe {
-                    std::env::set_var(arg_name(arg), value);
-                }
-            }
+    // Apply command-line args
+    for (k, v) in matches.args {
+        if let Some(v) = v.vals.first() {
+            std::env::set_var(arg_name(k), v.to_string_lossy().to_string());
         }
     }
 }
@@ -148,7 +125,7 @@ pub fn gen_sk(wait: u64) -> (String, Option<sign::SecretKey>) {
             let sk = base64::decode(contents).unwrap_or_default();
             if sk.len() == sign::SECRETKEYBYTES {
                 let mut tmp = [0u8; sign::SECRETKEYBYTES];
-                tmp.copy_from_slice(&sk);
+                tmp[..].copy_from_slice(&sk);
                 let pk = base64::encode(&tmp[sign::SECRETKEYBYTES / 2..]);
                 log::info!("Private key comes from {}", sk_file);
                 return (pk, Some(sign::SecretKey(tmp)));
@@ -190,21 +167,23 @@ pub async fn listen_signal() -> Result<()> {
     use hbb_common::tokio;
     use hbb_common::tokio::signal::unix::{signal, SignalKind};
 
-    tokio::spawn(async {
+    tokio::spawn(async move {
         let mut s = signal(SignalKind::terminate())?;
         let terminate = s.recv();
+
         let mut s = signal(SignalKind::interrupt())?;
         let interrupt = s.recv();
+
         let mut s = signal(SignalKind::quit())?;
         let quit = s.recv();
 
         tokio::select! {
             _ = terminate => log::info!("signal terminate"),
             _ = interrupt => log::info!("signal interrupt"),
-            _ = quit => log::info!("signal quit"),
+            _ = quit      => log::info!("signal quit"),
         }
 
-        Ok(())
+        Ok::<(), anyhow::Error>(())
     })
     .await?
 }
@@ -218,7 +197,7 @@ pub async fn listen_signal() -> Result<()> {
 pub fn check_software_update() {
     const ONE_DAY_IN_SECONDS: u64 = 60 * 60 * 24;
     std::thread::spawn(move || loop {
-        std::thread::spawn(move || allow_err!(check_software_update_()));
+        std::thread::spawn(|| allow_err!(check_software_update_()));
         std::thread::sleep(std::time::Duration::from_secs(ONE_DAY_IN_SECONDS));
     });
 }
@@ -228,15 +207,20 @@ async fn check_software_update_() -> hbb_common::ResultType<()> {
     let (request, url) =
         hbb_common::version_check_request(hbb_common::VER_TYPE_RUSTDESK_SERVER.to_string());
 
-    let latest_release_response =
-        reqwest::Client::builder().build()?.post(url).json(&request).send().await?;
+    let latest_release_response = reqwest::Client::builder()
+        .build()?
+        .post(url)
+        .json(&request)
+        .send()
+        .await?;
 
     let bytes = latest_release_response.bytes().await?;
     let resp: hbb_common::VersionCheckResponse = serde_json::from_slice(&bytes)?;
     let response_url = resp.url;
+
     let latest_release_version = response_url.rsplit('/').next().unwrap_or_default();
 
-    if get_version_number(&latest_release_version)
+    if get_version_number(latest_release_version)
         > get_version_number(crate::version::VERSION)
     {
         log::info!("new version is available: {}", latest_release_version);
