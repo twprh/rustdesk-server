@@ -1,7 +1,7 @@
 use clap::App;
 use hbb_common::{
     allow_err,
-    anyhow::{Context, Result},
+    anyhow::{self, Context, Result},
     get_version_number,
     log, tokio, ResultType,
 };
@@ -68,9 +68,7 @@ pub fn init_args(args: &str, name: &str, about: &str) {
     if let Ok(v) = Ini::load_from_file(".env") {
         if let Some(section) = v.section(None::<String>) {
             for (k, v) in section.iter() {
-                unsafe {
-                    std::env::set_var(arg_name(k), v);
-                }
+                std::env::set_var(arg_name(k), v);
             }
         }
     }
@@ -80,20 +78,16 @@ pub fn init_args(args: &str, name: &str, about: &str) {
         if let Ok(v) = Ini::load_from_file(config) {
             if let Some(section) = v.section(None::<String>) {
                 for (k, v) in section.iter() {
-                    unsafe {
-                        std::env::set_var(arg_name(k), v);
-                    }
+                    std::env::set_var(arg_name(k), v);
                 }
             }
         }
     }
 
-    // Apply CLI arguments
-    for (k, v) in matches.args {
-        if let Some(v) = v.vals.first() {
-            unsafe {
-                std::env::set_var(arg_name(k), v.to_string_lossy().to_string());
-            }
+    // Apply CLI arguments (clap 2.x)
+    for (k, v) in matches.args.iter() {
+        if let Some(val) = v.vals.first() {
+            std::env::set_var(arg_name(k), val.to_string_lossy().to_string());
         }
     }
 }
@@ -226,4 +220,3 @@ async fn check_software_update_() -> hbb_common::ResultType<()> {
 
     Ok(())
 }
-
