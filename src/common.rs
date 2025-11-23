@@ -1,4 +1,4 @@
-use clap::{App};
+use clap::App;
 use hbb_common::{
     allow_err,
     anyhow::{Context, Result},
@@ -67,27 +67,33 @@ pub fn init_args(args: &str, name: &str, about: &str) {
     // Load .env file
     if let Ok(v) = Ini::load_from_file(".env") {
         if let Some(section) = v.section(None::<String>) {
-            section.iter().for_each(|(k, v)| {
-                std::env::set_var(arg_name(k), v);
-            });
-        }
-    }
-
-    // Load config file if provided
-    if let Some(config) = matches.value_of("config") {
-        if let Ok(v) = Ini::load_from_file(config) {
-            if let Some(section) = v.section(None::<String>) {
-                section.iter().for_each(|(k, v)| {
+            for (k, v) in section.iter() {
+                unsafe {
                     std::env::set_var(arg_name(k), v);
-                });
+                }
             }
         }
     }
 
-    // Apply command-line args
+    // Load config file if passed
+    if let Some(config) = matches.value_of("config") {
+        if let Ok(v) = Ini::load_from_file(config) {
+            if let Some(section) = v.section(None::<String>) {
+                for (k, v) in section.iter() {
+                    unsafe {
+                        std::env::set_var(arg_name(k), v);
+                    }
+                }
+            }
+        }
+    }
+
+    // Apply CLI arguments
     for (k, v) in matches.args {
         if let Some(v) = v.vals.first() {
-            std::env::set_var(arg_name(k), v.to_string_lossy().to_string());
+            unsafe {
+                std::env::set_var(arg_name(k), v.to_string_lossy().to_string());
+            }
         }
     }
 }
@@ -125,7 +131,7 @@ pub fn gen_sk(wait: u64) -> (String, Option<sign::SecretKey>) {
             let sk = base64::decode(contents).unwrap_or_default();
             if sk.len() == sign::SECRETKEYBYTES {
                 let mut tmp = [0u8; sign::SECRETKEYBYTES];
-                tmp[..].copy_from_slice(&sk);
+                tmp.copy_from_slice(&sk);
                 let pk = base64::encode(&tmp[sign::SECRETKEYBYTES / 2..]);
                 log::info!("Private key comes from {}", sk_file);
                 return (pk, Some(sign::SecretKey(tmp)));
@@ -149,9 +155,9 @@ pub fn gen_sk(wait: u64) -> (String, Option<sign::SecretKey>) {
         let pub_file = format!("{sk_file}.pub");
         if let Ok(mut f) = std::fs::File::create(&pub_file) {
             f.write_all(pk.as_bytes()).ok();
-            if let Ok(mut f) = std::fs::File::create(sk_file) {
+            if let Ok(mut f2) = std::fs::File::create(sk_file) {
                 let s = base64::encode(&sk);
-                if f.write_all(s.as_bytes()).is_ok() {
+                if f2.write_all(s.as_bytes()).is_ok() {
                     log::info!("Private/public key written to {}/{}", sk_file, pub_file);
                     log::debug!("Public key: {}", pk);
                     return (pk, Some(sk));
@@ -164,23 +170,17 @@ pub fn gen_sk(wait: u64) -> (String, Option<sign::SecretKey>) {
 
 #[cfg(unix)]
 pub async fn listen_signal() -> Result<()> {
-    use hbb_common::tokio;
     use hbb_common::tokio::signal::unix::{signal, SignalKind};
 
     tokio::spawn(async move {
-        let mut s = signal(SignalKind::terminate())?;
-        let terminate = s.recv();
-
-        let mut s = signal(SignalKind::interrupt())?;
-        let interrupt = s.recv();
-
-        let mut s = signal(SignalKind::quit())?;
-        let quit = s.recv();
+        let mut sig_term = signal(SignalKind::terminate())?;
+        let mut sig_int = signal(SignalKind::interrupt())?;
+        let mut sig_quit = signal(SignalKind::quit())?;
 
         tokio::select! {
-            _ = terminate => log::info!("signal terminate"),
-            _ = interrupt => log::info!("signal interrupt"),
-            _ = quit      => log::info!("signal quit"),
+            _ = sig_term.recv() => log::info!("signal terminate"),
+            _ = sig_int.recv()  => log::info!("signal interrupt"),
+            _ = sig_quit.recv() => log::info!("signal quit"),
         }
 
         Ok::<(), anyhow::Error>(())
@@ -207,24 +207,23 @@ async fn check_software_update_() -> hbb_common::ResultType<()> {
     let (request, url) =
         hbb_common::version_check_request(hbb_common::VER_TYPE_RUSTDESK_SERVER.to_string());
 
-    let latest_release_response = reqwest::Client::builder()
+    let resp = reqwest::Client::builder()
         .build()?
         .post(url)
         .json(&request)
         .send()
         .await?;
 
-    let bytes = latest_release_response.bytes().await?;
+    let bytes = resp.bytes().await?;
     let resp: hbb_common::VersionCheckResponse = serde_json::from_slice(&bytes)?;
-    let response_url = resp.url;
 
-    let latest_release_version = response_url.rsplit('/').next().unwrap_or_default();
+    let latest_url = resp.url;
+    let latest_version = latest_url.rsplit('/').next().unwrap_or_default();
 
-    if get_version_number(latest_release_version)
-        > get_version_number(crate::version::VERSION)
-    {
-        log::info!("new version is available: {}", latest_release_version);
+    if get_version_number(latest_version) > get_version_number(crate::version::VERSION) {
+        log::info!("new version available: {}", latest_version);
     }
 
     Ok(())
 }
+
