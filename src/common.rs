@@ -1,30 +1,20 @@
 use clap::App;
 use hbb_common::{
     allow_err,
-    anyhow::{self, Context, Result},
     get_version_number,
-    log, tokio, ResultType,
+    log,
+    tokio,
+    ResultType,
 };
 use ini::Ini;
 use sodiumoxide::crypto::sign;
 use std::{
+    fs::File,
     io::prelude::*,
-    io::Read,
     net::SocketAddr,
+    path::Path,
     time::{Instant, SystemTime},
 };
-
-//
-// --------------------------------------------------------
-//  SAFE WRAPPER FOR `set_var` (your toolchain marks it unsafe)
-// --------------------------------------------------------
-//
-#[inline]
-fn set_env_var_safe(key: String, value: impl AsRef<std::ffi::OsStr>) {
-    unsafe {
-        std::env::set_var(key, value);
-    }
-}
 
 #[allow(dead_code)]
 pub(crate) fn get_expired_time() -> Instant {
@@ -37,16 +27,21 @@ pub(crate) fn get_expired_time() -> Instant {
 pub(crate) fn test_if_valid_server(host: &str, name: &str) -> ResultType<SocketAddr> {
     use std::net::ToSocketAddrs;
     let res = if host.contains(':') {
-        host.to_socket_addrs()?.next().context("")
+        host.to_socket_addrs()?.next().ok_or_else(|| {
+            let err_msg = format!("Invalid {} {}", name, host);
+            log::error!("{}", err_msg);
+            err_msg.into()
+        })
     } else {
         format!("{}:{}", host, 0)
             .to_socket_addrs()?
             .next()
-            .context("")
+            .ok_or_else(|| {
+                let err_msg = format!("Invalid {} {}", name, host);
+                log::error!("{}", err_msg);
+                err_msg.into()
+            })
     };
-    if res.is_err() {
-        log::error!("Invalid {} {}: {:?}", name, host, res);
-    }
     res
 }
 
@@ -67,6 +62,10 @@ fn arg_name(name: &str) -> String {
     name.to_uppercase().replace('_', "-")
 }
 
+fn set_env_var_safe<K: AsRef<str>, V: AsRef<str>>(key: K, value: V) {
+    std::env::set_var(key.as_ref(), value.as_ref());
+}
+
 #[allow(dead_code)]
 pub fn init_args(args: &str, name: &str, about: &str) {
     let matches = App::new(name)
@@ -80,26 +79,26 @@ pub fn init_args(args: &str, name: &str, about: &str) {
     if let Ok(v) = Ini::load_from_file(".env") {
         if let Some(section) = v.section(None::<String>) {
             for (k, v) in section.iter() {
-                set_env_var_safe(arg_name(k), v.as_str());
+                set_env_var_safe(arg_name(k), v);
             }
         }
     }
 
-    // Load config= file
+    // Load config file if passed
     if let Some(config) = matches.value_of("config") {
         if let Ok(v) = Ini::load_from_file(config) {
             if let Some(section) = v.section(None::<String>) {
                 for (k, v) in section.iter() {
-                    set_env_var_safe(arg_name(k), v.as_str());
+                    set_env_var_safe(arg_name(k), v);
                 }
             }
         }
     }
 
     // Apply CLI arguments
-    for (k, v) in matches.args.iter() {
+    for (k, v) in matches.args {
         if let Some(val) = v.vals.first() {
-            set_env_var_safe(arg_name(k), val.to_string_lossy().to_string());
+            set_env_var_safe(arg_name(k), &val.to_string_lossy().to_string());
         }
     }
 }
@@ -127,14 +126,13 @@ pub fn now() -> u64 {
 
 pub fn gen_sk(wait: u64) -> (String, Option<sign::SecretKey>) {
     let sk_file = "id_ed25519";
-    if wait > 0 && !std::path::Path::new(sk_file).exists() {
+    if wait > 0 && !Path::new(sk_file).exists() {
         std::thread::sleep(std::time::Duration::from_millis(wait));
     }
-    if let Ok(mut file) = std::fs::File::open(sk_file) {
+    if let Ok(mut file) = File::open(sk_file) {
         let mut contents = String::new();
         if file.read_to_string(&mut contents).is_ok() {
-            let contents = contents.trim();
-            let sk = base64::decode(contents).unwrap_or_default();
+            let sk = base64::decode(contents.trim()).unwrap_or_default();
             if sk.len() == sign::SECRETKEYBYTES {
                 let mut tmp = [0u8; sign::SECRETKEYBYTES];
                 tmp.copy_from_slice(&sk);
@@ -146,36 +144,38 @@ pub fn gen_sk(wait: u64) -> (String, Option<sign::SecretKey>) {
                 std::process::exit(1);
             }
         }
-    } else {
-        let gen_func = || {
-            let (tmp, sk) = sign::gen_keypair();
-            (base64::encode(tmp), sk)
-        };
-        let (mut pk, mut sk) = gen_func();
-        for _ in 0..300 {
-            if !pk.contains('/') && !pk.contains(':') {
-                break;
-            }
-            (pk, sk) = gen_func();
+    }
+
+    // Generate new key pair
+    let gen_func = || {
+        let (tmp, sk) = sign::gen_keypair();
+        (base64::encode(tmp), sk)
+    };
+    let (mut pk, mut sk) = gen_func();
+    for _ in 0..300 {
+        if !pk.contains('/') && !pk.contains(':') {
+            break;
         }
-        let pub_file = format!("{sk_file}.pub");
-        if let Ok(mut f) = std::fs::File::create(&pub_file) {
-            f.write_all(pk.as_bytes()).ok();
-            if let Ok(mut f2) = std::fs::File::create(sk_file) {
-                let s = base64::encode(&sk);
-                if f2.write_all(s.as_bytes()).is_ok() {
-                    log::info!("Private/public key written to {}/{}", sk_file, pub_file);
-                    log::debug!("Public key: {}", pk);
-                    return (pk, Some(sk));
-                }
+        (pk, sk) = gen_func();
+    }
+    let pub_file = format!("{sk_file}.pub");
+    if let Ok(mut f) = File::create(&pub_file) {
+        f.write_all(pk.as_bytes()).ok();
+        if let Ok(mut f2) = File::create(sk_file) {
+            let s = base64::encode(&sk);
+            if f2.write_all(s.as_bytes()).is_ok() {
+                log::info!("Private/public key written to {}/{}", sk_file, pub_file);
+                log::debug!("Public key: {}", pk);
+                return (pk, Some(sk));
             }
         }
     }
+
     ("".to_owned(), None)
 }
 
 #[cfg(unix)]
-pub async fn listen_signal() -> Result<()> {
+pub async fn listen_signal() -> ResultType<()> {
     use hbb_common::tokio::signal::unix::{signal, SignalKind};
 
     tokio::spawn(async move {
@@ -185,17 +185,17 @@ pub async fn listen_signal() -> Result<()> {
 
         tokio::select! {
             _ = sig_term.recv() => log::info!("signal terminate"),
-            _ = sig_int.recv()  => log::info!("signal interrupt"),
+            _ = sig_int.recv() => log::info!("signal interrupt"),
             _ = sig_quit.recv() => log::info!("signal quit"),
         }
 
-        Ok::<(), anyhow::Error>(())
+        Ok::<(), hbb_common::anyhow::Error>(())
     })
     .await?
 }
 
 #[cfg(not(unix))]
-pub async fn listen_signal() -> Result<()> {
+pub async fn listen_signal() -> ResultType<()> {
     let () = std::future::pending().await;
     unreachable!();
 }
@@ -209,7 +209,7 @@ pub fn check_software_update() {
 }
 
 #[tokio::main(flavor = "current_thread")]
-async fn check_software_update_() -> hbb_common::ResultType<()> {
+async fn check_software_update_() -> ResultType<()> {
     let (request, url) =
         hbb_common::version_check_request(hbb_common::VER_TYPE_RUSTDESK_SERVER.to_string());
 
