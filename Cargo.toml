@@ -2,7 +2,7 @@
 name = "hbbs"
 version = "1.1.14"
 authors = ["rustdesk <info@rustdesk.com>"]
-edition = "2021"
+edition = "2021"  # Change to 2021 for broader stable compatibility
 build = "build.rs"
 default-run = "hbbs"
 
@@ -14,15 +14,13 @@ path = "src/hbbr.rs"
 name = "rustdesk-utils"
 path = "src/utils.rs"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 hbb_common = { path = "libs/hbb_common" }
 serde_derive = "1.0"
 serde = "1.0"
 serde_json = "1.0"
 lazy_static = "1.4"
-clap = "2"
+clap = "2.34"                    # Explicit latest clap2
 rust-ini = "0.18"
 minreq = { version = "2.4", features = ["punycode"] }
 machine-uid = "0.2"
@@ -30,7 +28,7 @@ mac_address = "1.1.5"
 whoami = "1.2"
 base64 = "0.13"
 axum = { version = "0.5", features = ["headers"] }
-sqlx = { version = "0.6", features = [ "runtime-tokio-rustls", "sqlite", "macros", "chrono", "json" ] }
+sqlx = { version = "0.6", features = ["runtime-tokio-rustls", "sqlite", "macros", "chrono", "json"] }
 deadpool = "0.8"
 async-trait = "0.1"
 async-speed-limit = { git = "https://github.com/open-trade/async-speed-limit" }
@@ -51,9 +49,9 @@ ipnetwork = "0.20"
 local-ip-address = "0.5.1"
 dns-lookup = "1.0.8"
 ping = "0.4.0"
+anyhow = "1.0"                     # <-- Added for listen_signal() error handling
 
 [target.'cfg(any(target_os = "macos", target_os = "windows"))'.dependencies]
-# https://github.com/rustdesk/rustdesk-server-pro/issues/189, using native-tls for better tls support
 reqwest = { git = "https://github.com/rustdesk-org/reqwest", features = ["blocking", "socks", "json", "native-tls", "gzip"], default-features=false }
 
 [target.'cfg(not(any(target_os = "macos", target_os = "windows")))'.dependencies]
@@ -66,12 +64,8 @@ hbb_common = { path = "libs/hbb_common" }
 members = ["libs/hbb_common"]
 exclude = ["ui"]
 
-#https://github.com/johnthagen/min-sized-rust
-#https://doc.rust-lang.org/cargo/reference/profiles.html#default-profiles
 [profile.release]
 lto = true
 codegen-units = 1
 panic = 'abort'
 strip = true
-#opt-level = 'z' # only have smaller size after strip # Default is 3, better performance
-#rpath = true # Not needed
