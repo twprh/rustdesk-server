@@ -14,6 +14,18 @@ use std::{
     time::{Instant, SystemTime},
 };
 
+//
+// --------------------------------------------------------
+//  SAFE WRAPPER FOR `set_var` (your toolchain marks it unsafe)
+// --------------------------------------------------------
+//
+#[inline]
+fn set_env_var_safe(key: String, value: impl AsRef<std::ffi::OsStr>) {
+    unsafe {
+        std::env::set_var(key, value);
+    }
+}
+
 #[allow(dead_code)]
 pub(crate) fn get_expired_time() -> Instant {
     let now = Instant::now();
@@ -68,26 +80,26 @@ pub fn init_args(args: &str, name: &str, about: &str) {
     if let Ok(v) = Ini::load_from_file(".env") {
         if let Some(section) = v.section(None::<String>) {
             for (k, v) in section.iter() {
-                std::env::set_var(arg_name(k), v);
+                set_env_var_safe(arg_name(k), v.as_str());
             }
         }
     }
 
-    // Load config file if passed
+    // Load config= file
     if let Some(config) = matches.value_of("config") {
         if let Ok(v) = Ini::load_from_file(config) {
             if let Some(section) = v.section(None::<String>) {
                 for (k, v) in section.iter() {
-                    std::env::set_var(arg_name(k), v);
+                    set_env_var_safe(arg_name(k), v.as_str());
                 }
             }
         }
     }
 
-    // Apply CLI arguments (clap 2.x)
+    // Apply CLI arguments
     for (k, v) in matches.args.iter() {
         if let Some(val) = v.vals.first() {
-            std::env::set_var(arg_name(k), val.to_string_lossy().to_string());
+            set_env_var_safe(arg_name(k), val.to_string_lossy().to_string());
         }
     }
 }
