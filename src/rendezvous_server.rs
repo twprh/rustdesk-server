@@ -137,7 +137,9 @@ impl RendezvousServer {
         };
         log::info!("mask: {:?}", rs.inner.mask);
         log::info!("local-ip: {:?}", rs.inner.local_ip);
-        ::std::env::set_var("PORT_FOR_API", port.to_string());
+        unsafe {
+                std::env::set_var("PORT_FOR_API", port.to_string());
+        }
         rs.parse_relay_servers(&get_arg("relay-servers"));
         let mut listener = create_tcp_listener(port).await?;
         let mut listener2 = create_tcp_listener(nat_port).await?;
