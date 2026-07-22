@@ -66,6 +66,8 @@ jobs:
           command: build
           args: --release --all-features --target=${{ matrix.job.target }}
           use-cross: true  
+        env:
+          OPENSSL_VENDORED: "1"
 
       - name: Exec chmod
         run: chmod -v a+x target/${{ matrix.job.target }}/release/*
