@@ -8,8 +8,10 @@ name: build-01a
 # DOCKER_HUB_PASSWORD is a token you should create under "account settings / security" with read/write access
 
 permissions:
-  contents: write  # WICHTIG: 'write' ist notwendig, um GitHub Releases zu erstellen
+  contents: write
   packages: write
+  actions: read
+  checks: write
 
 on:
   workflow_dispatch:
